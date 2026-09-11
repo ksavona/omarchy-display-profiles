@@ -4,11 +4,7 @@ An interactive Omarchy Display panel for arranging screens, changing per-display
 
 Profiles are matched by the monitors' EDID identity (manufacturer, model, and serial), not a temporary connector name such as `DVI-I-1`. This makes USB docks and different desks practical: reconnect a known set of monitors and its layout, scale, and rotation are restored automatically.
 
-![Display Profiles panel with an internal display and two dock-connected monitors](assets/display-panel.png)
-
-<p align="center">
-  <img src="assets/display-panel-demo.gif" width="480" alt="Live Omarchy Display Profiles panel capture">
-</p>
+![Display Profiles panel showing an internal display and two dock-connected monitors](assets/display-layout.png)
 
 ## Features
 
