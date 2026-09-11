@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# User-owned display-layout helper for the Omarchy Display Profiles plugin.
+# It applies live Hyprland output changes and persists explicit output rules.
+set -euo pipefail
+
+config="$HOME/.config/hypr/monitors.lua"
+layout_file="$HOME/.config/omarchy/display-layout.json"
+profiles_file="$HOME/.config/omarchy/display-layout-profiles.json"
+begin='-- BEGIN kris.monitor managed layout'
+end='-- END kris.monitor managed layout'
+
+usage() {
+  echo "Usage: display-layout state|apply <json>|restore|snapshot|extend|mirror <target> <source>|duplicate-main <source>" >&2
+  exit 2
+}
+
+persist() {
+  local payload="$1" tmp rules
+  rules="$(jq -r '
+    .[] | select(.enabled) |
+    "hl.monitor({ output = \"\(.name)\", mode = \"preferred\", position = \"\(.x)x\(.y)\", scale = \(.scale), transform = \(.transform // 0)"
+    + (if (.mirror // "") != "" then ", mirror = \"" + .mirror + "\"" else "" end)
+    + " })"
+  ' <<<"$payload")"
+  tmp="$(mktemp)"
+  awk -v begin="$begin" -v end="$end" '
+    $0 == begin { skipping=1; next }
+    $0 == end { skipping=0; next }
+    !skipping { print }
+  ' "$config" >"$tmp"
+  {
+    printf '\n%s\n' "$begin"
+    printf '%s\n' "$rules"
+    printf '%s\n' "$end"
+  } >>"$tmp"
+  mv "$tmp" "$config"
+}
+
+raw_state() {
+  hyprctl -j monitors all | jq '[.[] | {
+    name, description, width, height, refreshRate, x, y, scale, transform,
+    focused, enabled: (.disabled | not),
+    mirror: (if (.mirrorOf // "none") == "none" then "" else (.mirrorOf | tostring) end)
+  }]'
+}
+
+profile_key() {
+  jq -r '[.[] | if (.description // "") == "" then .name else .description end] | sort | join(" | ")'
+}
+
+save_profile() {
+  local payload="$1" key displays tmp
+  key="$(profile_key <<<"$payload")"
+  displays="$(jq '[.[] | . + { identity: (if (.description // "") == "" then .name else .description end) }]' <<<"$payload")"
+  tmp="$(mktemp)"
+  if [[ -f "$profiles_file" ]]; then cp "$profiles_file" "$tmp"; else printf '{"version":1,"profiles":{}}\n' >"$tmp"; fi
+  jq --arg key "$key" --argjson displays "$displays" '
+    .version = 1 | .profiles = (.profiles // {}) |
+    .profiles[$key] = { updated: (now | floor), displays: $displays }
+  ' "$tmp" >"${tmp}.next"
+  mv "${tmp}.next" "$profiles_file"
+  rm -f "$tmp"
+}
+
+restore_profile() {
+  local current key profile target
+  [[ -f "$profiles_file" ]] || return 0
+  current="$(raw_state)"
+  key="$(profile_key <<<"$current")"
+  profile="$(jq -c --arg key "$key" '.profiles[$key] // empty' "$profiles_file")"
+  [[ -n "$profile" ]] || return 0
+  target="$(jq --argjson saved "$profile" '
+    . as $current | $saved.displays as $saved |
+    map(. as $now |
+      ($saved | map(select(.identity == (if ($now.description // "") == "" then $now.name else $now.description end))) | .[0]) as $prior |
+      if $prior == null then $now else
+        $now + { x: $prior.x, y: $prior.y, scale: $prior.scale, transform: $prior.transform, mirror: ($prior.mirror // "") }
+      end
+    )
+  ' <<<"$current")"
+  if jq -e --argjson target "$target" '
+    [ .[] | {name,x,y,scale,transform,mirror} ] ==
+    [ $target[] | {name,x,y,scale,transform,mirror} ]
+  ' <<<"$current" >/dev/null; then return 0; fi
+  "$0" apply "$target"
+}
+
+case "${1:-}" in
+  state)
+    raw_state
+    ;;
+  apply)
+    [[ $# -eq 2 ]] || usage
+    payload="$2"
+    jq -e 'type == "array" and all(.[]; .name and (.x|type == "number") and (.y|type == "number") and (.scale|type == "number"))' <<<"$payload" >/dev/null
+    while IFS=$'\t' read -r name enabled x y scale transform; do
+      if [[ "$enabled" == "true" ]]; then
+        hyprctl keyword monitor "$name,preferred,${x}x${y},${scale},transform,${transform}" >/dev/null
+      else
+        hyprctl keyword monitor "$name,disable" >/dev/null
+      fi
+    done < <(jq -r '.[] | [.name, .enabled, .x, .y, .scale, (.transform // 0)] | @tsv' <<<"$payload")
+    persist "$payload"
+    if jq -e 'all(.[]; (.mirror // "") == "")' <<<"$payload" >/dev/null; then
+      mkdir -p "$(dirname "$layout_file")"
+      printf '%s\n' "$payload" >"$layout_file"
+      save_profile "$payload"
+    fi
+    hyprctl reload >/dev/null
+    ;;
+  restore)
+    restore_profile
+    ;;
+  snapshot)
+    save_profile "$(raw_state)"
+    ;;
+  extend)
+    [[ -f "$layout_file" ]] || { echo "No saved extended layout" >&2; exit 1; }
+    "$0" apply "$(cat "$layout_file")"
+    ;;
+  mirror)
+    [[ $# -eq 3 ]] || usage
+    state="$("$0" state | jq --arg target "$2" --arg source "$3" 'map(if .name == $target then .mirror = $source else . end)')"
+    persist "$state"
+    hyprctl reload >/dev/null
+    ;;
+  duplicate-main)
+    [[ $# -eq 2 ]] || usage
+    source="$2"
+    state="$(if [[ -f "$layout_file" ]]; then cat "$layout_file"; else "$0" state; fi)"
+    state="$(jq --arg source "$source" 'map(if .name == $source then .mirror = "" else .mirror = $source end)' <<<"$state")"
+    persist "$state"
+    hyprctl reload >/dev/null
+    ;;
+  *) usage ;;
+esac

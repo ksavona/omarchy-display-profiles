@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Install the profile helper and its user service. Run after cloning the repo.
+set -euo pipefail
+
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+bin_dir="$HOME/.local/bin"
+service_dir="$HOME/.config/systemd/user"
+
+install -Dm755 "$root_dir/scripts/omarchy-display-layout" "$bin_dir/omarchy-display-layout"
+install -Dm755 "$root_dir/scripts/omarchy-display-layout-watch" "$bin_dir/omarchy-display-layout-watch"
+install -Dm644 "$root_dir/systemd/omarchy-display-profiles.service" "$service_dir/omarchy-display-profiles.service"
+
+systemctl --user daemon-reload
+systemctl --user enable --now omarchy-display-profiles.service
+
+echo "Installed. Enable the plugin with Omarchy if it is not already enabled."

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "ksavona.display-profiles",
+  "name": "Display Profiles",
+  "version": "0.1.0",
+  "author": "Kristian Savona Ventura",
+  "description": "Interactive monitor layouts with remembered dock profiles",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Display Profiles",
+    "description": "Interactive display layout, rotation, mirroring, and automatic dock profiles",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

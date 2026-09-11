@@ -1,0 +1,3 @@
+*.pkg.tar.*
+profiles.json
+.DS_Store

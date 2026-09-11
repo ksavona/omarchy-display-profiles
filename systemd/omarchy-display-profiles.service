@@ -1,0 +1,12 @@
+[Unit]
+Description=Restore remembered Hyprland display layouts
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omarchy-display-layout-watch
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

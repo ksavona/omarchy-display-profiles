@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Restore a saved monitor profile shortly after a dock/monitor hotplug event.
+set -u
+
+while true; do
+  "$HOME/.local/bin/omarchy-display-layout" restore >/dev/null 2>&1 || true
+  sleep 3
+done
