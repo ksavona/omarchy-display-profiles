@@ -13,6 +13,7 @@ Profiles are matched by the monitors' EDID identity (manufacturer, model, and se
 - Identify overlays and main-display mirroring
 - Automatic profiles for monitor sets, including USB DisplayLink docks
 - Overlapping virtual outputs are allowed; Hyprland may still show its own warning
+- Screen saver and lock presets: Default, Power mode, 5, 15, 30, or 60 minutes; Power mode tracks the current system power profile
 
 ## Install
 
@@ -36,5 +37,6 @@ DisplayLink docks need the proprietary DisplayLink manager and EVDI kernel modul
 
 - Profiles are stored locally at `~/.config/omarchy/display-layout-profiles.json` and are never included in this repository.
 - The helper updates only the managed block in `~/.config/hypr/monitors.lua`.
+- Omarchy supplies timed screensaver and lock behavior. This plugin does not enable automatic system suspend.
 - This is a community plugin and is not affiliated with the Omarchy project. Omarchy is MIT-licensed; this project is MIT-licensed too.
 - The panel and model began as a modification of Omarchy's built-in monitor widget and remain available under the MIT license.

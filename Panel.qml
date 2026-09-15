@@ -13,6 +13,7 @@ Panel {
   ipcTarget: "ksavona.display-profiles"
   manageIpc: false
   readonly property string displayLayoutCommand: (Quickshell.env("HOME") || "") + "/.local/bin/omarchy-display-layout"
+  readonly property string displayIdleCommand: (Quickshell.env("HOME") || "") + "/.local/bin/omarchy-display-idle"
 
   // manageIpc: false so this panel can own the single IpcHandler the target
   // permits — needed for the brightness + state methods below.
@@ -36,6 +37,15 @@ Panel {
   property string draggingDisplay: ""
   property real dragPreviewX: 0
   property real dragPreviewY: 0
+  property string idleMode: "default"
+  property string idlePowerProfile: "balanced"
+  property int idleScreensaverSeconds: 150
+  property int idleLockSeconds: 300
+  readonly property var idlePresets: [
+    { label: "DEFAULT", value: "default" }, { label: "POWER MODE", value: "power" },
+    { label: "5 MIN", value: "5" }, { label: "15 MIN", value: "15" },
+    { label: "30 MIN", value: "30" }, { label: "60 MIN", value: "60" }
+  ]
 
   // Carry sub-notch touchpad deltas between wheel events.
   property real wheelAccumulator: 0
@@ -242,6 +252,36 @@ Panel {
   function refresh() {
     if (!stateProc.running) stateProc.running = true
     if (!layoutStateProc.running) layoutStateProc.running = true
+    if (!idleStateProc.running) idleStateProc.running = true
+  }
+
+  function updateIdleState(json) {
+    try {
+      var state = JSON.parse(String(json || "{}"))
+      root.idleMode = String(state.mode || "default")
+      root.idlePowerProfile = String(state.powerProfile || "balanced")
+      root.idleScreensaverSeconds = Number(state.screensaver || 150)
+      root.idleLockSeconds = Number(state.lock || 300)
+    } catch (e) {}
+  }
+
+  function setIdleMode(mode) {
+    if (idleSetProc.running) return
+    root.idleMode = mode
+    idleSetProc.command = [root.displayIdleCommand, "set", mode]
+    idleSetProc.running = true
+  }
+
+  function idleDescription() {
+    if (idleMode === "power") {
+      if (idlePowerProfile === "performance") return "Performance: screensaver off; lock after 60 min."
+      if (idlePowerProfile === "balanced") return "Balanced: screensaver after 30 min; lock after 35 min."
+      return "Power saver: screensaver after 2.5 min; lock after 5 min."
+    }
+    var screen = idleScreensaverSeconds / 60
+    var lock = Math.round(idleLockSeconds / 60)
+    var screenText = screen % 1 === 0 ? String(screen) : screen.toFixed(1)
+    return "Screensaver after " + screenText + " min; lock after " + lock + " min."
   }
 
   function updateLayoutDisplays(json) {
@@ -541,6 +581,24 @@ Panel {
       waitForEnd: true
       onStreamFinished: root.updateLayoutDisplays(text)
     }
+  }
+
+  Process {
+    id: idleStateProc
+    command: [root.displayIdleCommand, "state"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateIdleState(text)
+    }
+  }
+
+  Process {
+    id: idleSetProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateIdleState(text)
+    }
+    onRunningChanged: if (!running) root.refresh()
   }
 
   Process {
@@ -949,6 +1007,49 @@ Panel {
                   width: scaleRow.cellWidth
                 }
               }
+            }
+          }
+
+          // ---------- Screen saver & lock ----------
+          PanelSeparator {
+            foreground: root.bar.foreground
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+
+            PanelSectionHeader {
+              text: "SCREEN SAVER & LOCK"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            Flow {
+              width: parent.width
+              spacing: Style.spacing.xs
+              Repeater {
+                model: root.idlePresets
+                Button {
+                  required property var modelData
+                  text: modelData.label
+                  active: root.idleMode === modelData.value
+                  fontSize: Style.font.caption
+                  foreground: root.bar.foreground
+                  fontFamily: root.bar.fontFamily
+                  bordered: true
+                  onClicked: root.setIdleMode(modelData.value)
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: root.idleDescription() + " Linux suspend is not enabled automatically."
+              color: Qt.darker(root.bar.foreground, 1.4)
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
           }
 

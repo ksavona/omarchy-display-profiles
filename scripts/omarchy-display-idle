@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Configure Omarchy's existing idle service from Display Profiles.
+# Omarchy supplies a screensaver and secure lock timer; it deliberately does
+# not auto-suspend the computer, so this helper never asks systemd to sleep.
+set -euo pipefail
+
+shell_config="$HOME/.config/omarchy/shell.json"
+state_file="$HOME/.config/omarchy/display-idle.json"
+
+usage() {
+  echo "Usage: omarchy-display-idle state|set default|set power|set <5|15|30|60>" >&2
+  exit 2
+}
+
+power_profile() {
+  local profile
+  profile="$(powerprofilesctl get 2>/dev/null || true)"
+  case "$profile" in
+    power-saver|balanced|performance) printf '%s\n' "$profile" ;;
+    *) printf '%s\n' "balanced" ;;
+  esac
+}
+
+timings_for() {
+  local mode="$1" profile="$2" screen lock
+  case "$mode" in
+    default) screen=150; lock=300 ;;
+    5|15|30|60) screen=$((mode * 60)); lock=$((screen + 300)) ;;
+    power)
+      case "$profile" in
+        power-saver) screen=150; lock=300 ;;
+        balanced) screen=1800; lock=2100 ;;
+        # A day-long screensaver delay acts as disabled while retaining an
+        # hour-long secure lock for an unattended performance session.
+        performance) screen=86400; lock=3600 ;;
+      esac
+      ;;
+    *) usage ;;
+  esac
+  printf '%s\t%s\n' "$screen" "$lock"
+}
+
+write_config() {
+  local screen="$1" lock="$2" tmp current
+  mkdir -p "$(dirname "$shell_config")"
+  [[ -f "$shell_config" ]] || printf '{"idle":{}}\n' >"$shell_config"
+  current="$(jq -r '[.idle.screensaver // -1, .idle.lock // -1] | @tsv' "$shell_config")"
+  if [[ "$current" == "$screen"$'\t'"$lock" ]]; then return 0; fi
+  tmp="$(mktemp "${shell_config}.XXXXXX")"
+  jq --argjson screen "$screen" --argjson lock "$lock" \
+    '.idle = (.idle // {}) | .idle.screensaver = $screen | .idle.lock = $lock' \
+    "$shell_config" >"$tmp"
+  mv "$tmp" "$shell_config"
+}
+
+read_mode() {
+  if [[ -f "$state_file" ]]; then
+    jq -r '.mode // "default"' "$state_file" 2>/dev/null || printf 'default\n'
+  else
+    printf 'default\n'
+  fi
+}
+
+write_state() {
+  local mode="$1" tmp
+  mkdir -p "$(dirname "$state_file")"
+  tmp="$(mktemp "${state_file}.XXXXXX")"
+  jq -n --arg mode "$mode" '{version: 1, mode: $mode}' >"$tmp"
+  mv "$tmp" "$state_file"
+}
+
+state() {
+  local mode profile timings screen lock
+  mode="$(read_mode)"
+  case "$mode" in default|power|5|15|30|60) ;; *) mode=default ;; esac
+  profile="$(power_profile)"
+  timings="$(timings_for "$mode" "$profile")"
+  IFS=$'\t' read -r screen lock <<<"$timings"
+  # Keep Power mode aligned with a profile change whenever the panel refreshes.
+  if [[ "$mode" == power ]]; then write_config "$screen" "$lock"; fi
+  jq -n --arg mode "$mode" --arg profile "$profile" --argjson screensaver "$screen" --argjson lock "$lock" \
+    '{mode: $mode, powerProfile: $profile, screensaver: $screensaver, lock: $lock}'
+}
+
+case "${1:-}" in
+  state) [[ $# -eq 1 ]] || usage; state ;;
+  set)
+    [[ $# -eq 2 ]] || usage
+    mode="$2"
+    case "$mode" in default|power|5|15|30|60) ;; *) usage ;; esac
+    profile="$(power_profile)"
+    IFS=$'\t' read -r screen lock <<<"$(timings_for "$mode" "$profile")"
+    write_config "$screen" "$lock"
+    write_state "$mode"
+    state
+    ;;
+  *) usage ;;
+esac

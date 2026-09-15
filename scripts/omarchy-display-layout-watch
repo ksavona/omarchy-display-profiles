@@ -4,5 +4,8 @@ set -u
 
 while true; do
   "$HOME/.local/bin/omarchy-display-layout" restore >/dev/null 2>&1 || true
+  # Power mode is intentionally reactive: changing the system power profile
+  # updates the Omarchy idle timers without needing to reopen the panel.
+  "$HOME/.local/bin/omarchy-display-idle" state >/dev/null 2>&1 || true
   sleep 3
 done
